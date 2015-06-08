@@ -15,7 +15,7 @@ type VerifyCsrfToken struct {
 // NewVerifyCsrfToken returns a new instance of NewVerifyCsrfToken
 func NewVerifyCsrfToken(token string) *VerifyCsrfToken {
     return &VerifyCsrfToken{
-        Logger:  log.New(os.Stdout, "[negroni] ", 0),
+        Logger:  log.New(os.Stdout, "[negroni verify csrftoken] ", 0),
         Token: token,
     }
 }
