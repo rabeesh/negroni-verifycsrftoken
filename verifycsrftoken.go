@@ -7,45 +7,67 @@ import (
     "os"
 )
 
+type SessionGet interface {
+    Get(r *http.Request, key string) string
+}
+
 type VerifyCsrfToken struct {
-    Token string
+    TokenKey string
+    Session SessionGet
     Logger  *log.Logger
 }
 
-// NewVerifyCsrfToken returns a new instance of NewVerifyCsrfToken
-func NewVerifyCsrfToken(token string) *VerifyCsrfToken {
-    return &VerifyCsrfToken{
+
+// A new instance of NewVerifyCsrfToken
+func NewVerifyCsrfToken(key string, store SessionGet) *VerifyCsrfToken {
+    return &VerifyCsrfToken {
+        TokenKey: key,
         Logger:  log.New(os.Stdout, "[negroni verify csrftoken] ", 0),
-        Token: token,
+        Session: store,
     }
 }
 
-func (ct *VerifyCsrfToken) ServeHTTP(rw http.ResponseWriter, req *http.Request, next http.HandlerFunc) {
+func (ct *VerifyCsrfToken) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 
-    if ct.TokensMatch(req) {
-        ct.AddCookie(rw)
-        next(rw, req)
+    stoken := ct.Session.Get(r, ct.TokenKey)
+
+    if ct.isReadRequest(r) || ct.TokensMatch(r, stoken) {
+        next(rw, r)
+        ct.AddCookie(rw, stoken)
         return
     }
 
+    // throw new token mismatch exception
     ct.Logger.Printf("PANIC: %s", "Token mismatch")
-    next(rw, req)
+    rw.WriteHeader(http.StatusForbidden);
 }
 
-func (ct *VerifyCsrfToken) AddCookie(rw http.ResponseWriter) {
+// Check the HTTP request method is only for read
+func (ct *VerifyCsrfToken) isReadRequest(r *http.Request) bool {
+    verbs := []string{"HEAD", "GET", "OPTIONS"}
+    for _, m := range(verbs) {
+        if r.Method == m {
+            return true
+        }
+    }
+    return false
+}
+
+func (ct *VerifyCsrfToken) AddCookie(rw http.ResponseWriter, stoken string) {
     cookie := &http.Cookie{
         Name : "XSRF-TOKEN",
-        Value : ct.Token,
+        Value : stoken,
         Path : "/",
         Expires : time.Now().Add(240 * time.Minute),
         HttpOnly : true,
     }
+
     http.SetCookie(rw, cookie)
 }
 
-func (ct *VerifyCsrfToken) TokensMatch(req *http.Request) bool {
-    token := req.Header.Get("X-CSRF-TOKEN")
-    if ct.Token == token {
+func (ct *VerifyCsrfToken) TokensMatch(r *http.Request, stoken string) bool {
+    token := r.Header.Get("X-CSRF-TOKEN")
+    if stoken == token {
         return true
     }
     return false
