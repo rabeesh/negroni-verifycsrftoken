@@ -5,6 +5,7 @@ import (
     "net/http"
     "time"
     "os"
+    "github.com/codegangsta/negroni"
 )
 
 type SessionGet interface {
@@ -28,12 +29,15 @@ func NewVerifyCsrfToken(key string, store SessionGet) *VerifyCsrfToken {
 }
 
 func (ct *VerifyCsrfToken) ServeHTTP(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-
     stoken := ct.Session.Get(r, ct.TokenKey)
-
     if ct.isReadRequest(r) || ct.TokensMatch(r, stoken) {
-        next(rw, r)
-        ct.AddCookie(rw, stoken)
+        newRw := negroni.NewResponseWriter(rw)
+        newRw.Before(func (rw negroni.ResponseWriter){
+            ct.AddCookie(rw, stoken)
+            ct.Logger.Printf("Set-Cookie: %s", stoken)
+        })
+
+        next(newRw, r)
         return
     }
 
@@ -54,15 +58,12 @@ func (ct *VerifyCsrfToken) isReadRequest(r *http.Request) bool {
 }
 
 func (ct *VerifyCsrfToken) AddCookie(rw http.ResponseWriter, stoken string) {
-    cookie := &http.Cookie{
+    cookie := http.Cookie{
         Name : "XSRF-TOKEN",
         Value : stoken,
-        Path : "/",
         Expires : time.Now().Add(240 * time.Minute),
-        HttpOnly : true,
     }
-
-    http.SetCookie(rw, cookie)
+    http.SetCookie(rw, &cookie)
 }
 
 func (ct *VerifyCsrfToken) TokensMatch(r *http.Request, stoken string) bool {
